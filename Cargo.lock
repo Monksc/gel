@@ -344,6 +344,7 @@ dependencies = [
 [[package]]
 name = "depth_tree"
 version = "0.1.0"
+source = "git+https://github.com/Monksc/depth_tree?rev=dd6773fe507050707f1eb835d288a99b22f8a614#dd6773fe507050707f1eb835d288a99b22f8a614"
 dependencies = [
  "geo",
  "lyon",
