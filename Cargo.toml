@@ -8,5 +8,6 @@ boa_engine = "0.20.0"
 geo = "0.31.0"
 depth_tree = { git="https://github.com/Monksc/depth_tree", rev="dd6773fe507050707f1eb835d288a99b22f8a614" }
 geo-clipper = "0.9.0"
+rstar = "0.12.2"
 
 [dev-dependencies]

@@ -1,9 +1,24 @@
-use boa_engine::{JsValue, Source, js_string, property::Attribute};
+use boa_engine::{Context, JsValue, Source, js_string, property::Attribute};
 use geo::{
     BoundingRect, Centroid, Contains, Distance, Euclidean, MultiPolygon, Polygon, Translate,
 };
+use rstar::{AABB, RTreeObject};
 
 use crate::*;
+
+struct Node<T> {
+    point: geo::Point,
+    value: T,
+}
+
+impl<T> RTreeObject for Node<T> {
+    type Envelope = AABB<[f64; 2]>;
+
+    fn envelope(&self) -> Self::Envelope {
+        let p = self.point;
+        AABB::from_point([p.x(), p.y()])
+    }
+}
 
 #[derive(Debug, Clone)]
 pub struct Kerning {
@@ -24,6 +39,125 @@ enum Direction {
     Right,
     Bottom,
     Center,
+}
+
+fn kern_group(
+    shapes_to_kern: &mut Vec<Polygon>,
+    epsilon: f64,
+    space: f64,
+    respect_space: &str,
+    is_horizontal: bool,
+    direction: Direction,
+    context: &mut Context,
+) {
+    let (dx, dy) = if is_horizontal {
+        (1.0, 0.0)
+    } else {
+        (0.0, 1.0)
+    };
+
+    let Some(shapes_to_kern_border) = MultiPolygon::new(shapes_to_kern.clone()).bounding_rect()
+    else {
+        return;
+    };
+
+    for i in 1..shapes_to_kern.len() {
+        // Make sure shapes_to_kern[i] is past shapes_to_kern[i-1]
+        // Shipping can cause this ^
+        let mut distances_kerened = 0.;
+        if is_horizontal {
+            let dx = shapes_to_kern[i].bounding_rect().unwrap().center().x
+                - shapes_to_kern[i - 1].bounding_rect().unwrap().center().x
+                - epsilon;
+            if dx < 0.0 {
+                shapes_to_kern[i].translate_mut(-dx, 0.0);
+                distances_kerened += -dx;
+            }
+        } else {
+            let dy = shapes_to_kern[i].bounding_rect().unwrap().center().y
+                - shapes_to_kern[i - 1].bounding_rect().unwrap().center().y
+                - epsilon;
+            if dy < 0.0 {
+                shapes_to_kern[i].translate_mut(0.0, -dy);
+                distances_kerened += -dy;
+            }
+        }
+
+        // kern two letters
+        let mut distance = Euclidean.distance(&shapes_to_kern[i - 1], &shapes_to_kern[i]);
+        if distance < space {
+            // Go over
+            let mut max = distance;
+            while distance < space {
+                let d = 1.1 * (space - distance) + epsilon;
+                max = d;
+                shapes_to_kern[i].translate_mut(d * dx, d * dy);
+                distances_kerened += d;
+                distance = Euclidean.distance(&shapes_to_kern[i - 1], &shapes_to_kern[i]);
+            }
+
+            // Binary search
+            let mut mid = epsilon * 2.0;
+            while (distance - space).abs() < epsilon && mid >= epsilon {
+                mid = max / 2.;
+                let new_shape = shapes_to_kern[i].translate(-mid * dx, -mid * dy);
+                distances_kerened -= mid;
+                distance = Euclidean.distance(&shapes_to_kern[i - 1], &shapes_to_kern[i]);
+                if distance > space {
+                    shapes_to_kern[i] = new_shape;
+                }
+                max = mid;
+            }
+        }
+
+        // Check to see if we have to respect the distance for the rest of the letters
+        if distances_kerened > 0. && i + 1 < shapes_to_kern.len() {
+            context
+                .register_global_property(js_string!("j"), i + 1, Attribute::all())
+                .expect("property shouldn't exist");
+
+            if let Ok(JsValue::Boolean(value)) = context.eval(Source::from_bytes(respect_space)) {
+                if value {
+                    for j in i + 1..shapes_to_kern.len() {
+                        shapes_to_kern[j]
+                            .translate_mut(distances_kerened * dx, distances_kerened * dy);
+                    }
+                }
+            }
+        }
+    }
+
+    let new_shapes_to_kern_border = MultiPolygon::new(shapes_to_kern.clone())
+        .bounding_rect()
+        .unwrap();
+
+    // Properly Align. Dont need Top and Right as its correct by default
+    match direction {
+        Direction::Left => {
+            for shape in shapes_to_kern {
+                shape.translate_mut(
+                    shapes_to_kern_border.max().x - new_shapes_to_kern_border.max().x,
+                    0.,
+                );
+            }
+        }
+        Direction::Bottom => {
+            for shape in shapes_to_kern {
+                shape.translate_mut(
+                    0.,
+                    shapes_to_kern_border.max().y - new_shapes_to_kern_border.max().y,
+                );
+            }
+        }
+        Direction::Center => {
+            let dx = dx * (shapes_to_kern_border.center().x - new_shapes_to_kern_border.center().x);
+            let dy = dy * (shapes_to_kern_border.center().y - new_shapes_to_kern_border.center().y);
+            for shape in shapes_to_kern {
+                shape.translate_mut(dx, dy);
+            }
+        }
+        _ => {}
+    }
 }
 
 impl Query for Kerning {
@@ -76,279 +210,267 @@ impl Query for Kerning {
 
         let mut new_inner_shapes = Vec::new();
 
-        for (kerned_group_index, kerened_group) in kerned_group.iter().enumerate() {
-            data.context
-                .register_global_property(js_string!("i"), kerned_group_index, Attribute::all())
-                .expect("property shouldn't exist");
+        let mut tree = rstar::RTree::bulk_load(
+            kerned_group
+                .iter()
+                .enumerate()
+                .filter_map(|(group_index, indexes)| {
+                    let mut new_shapes = Vec::new();
 
-            if kerened_group.len() < 2 {
-                continue;
-            }
+                    for shape_index in indexes {
+                        let shape = shapes[*shape_index].clone();
+                        new_shapes.push(shape);
+                    }
 
-            let Some(first) = kerened_group.first() else {
-                continue;
-            };
+                    let Some(rect) = MultiPolygon::new(new_shapes.clone()).bounding_rect() else {
+                        return None;
+                    };
 
-            let Some(center) = shapes[*first].centroid() else {
-                continue;
-            };
+                    Some(Node {
+                        point: rect.centroid(),
+                        value: (group_index, new_shapes),
+                    })
+                })
+                .collect::<Vec<Node<(usize, Vec<Polygon>)>>>(),
+        );
 
-            // Calculate min / max x y
-
-            let (mut min_x, mut min_y) = center.0.x_y();
-            let (mut max_x, mut max_y) = center.0.x_y();
-
-            let mut shapes_to_kern = vec![shapes[*first].clone()];
-
-            // Finding out if its horizontal or verital kerning
-            for index in 1..kerened_group.len() {
-                let index = kerened_group[index];
-
-                let Some(center) = shapes[index].centroid() else {
-                    continue;
-                };
-
-                shapes_to_kern.push(shapes[index].clone());
-
-                let (x, y) = center.0.x_y();
-
-                if x < min_x {
-                    min_x = x;
-                }
-                if x > max_x {
-                    max_x = x;
-                }
-
-                if y < min_y {
-                    min_y = y;
-                }
-                if y > max_y {
-                    max_y = y;
-                }
-            }
-
-            let is_horizontal = (max_x - min_x) >= (max_y - min_y);
-
-            println!("Is Horizontal: {}", is_horizontal);
-
-            // Sort the shapes by the way its kerning
-            if is_horizontal {
-                shapes_to_kern.sort_by(|l, r| {
-                    l.bounding_rect()
-                        .unwrap()
-                        .min()
-                        .x
-                        .partial_cmp(&r.bounding_rect().unwrap().min().x)
-                        .unwrap()
-                });
-            } else {
-                shapes_to_kern.sort_by(|l, r| {
-                    l.bounding_rect()
-                        .unwrap()
-                        .min()
-                        .y
-                        .partial_cmp(&r.bounding_rect().unwrap().min().y)
-                        .unwrap()
-                });
-            }
-
-            // Get kerning rules. Left, Right, Center adjustified
-
-            let Some(shapes_to_kern_border) =
-                MultiPolygon::new(shapes_to_kern.clone()).bounding_rect()
-            else {
+        for border in &borders_group {
+            let Some(bounding_rect) = MultiPolygon::new(
+                border
+                    .into_iter()
+                    .map(|index| shapes[*index].clone())
+                    .collect(),
+            )
+            .bounding_rect() else {
                 continue;
             };
 
-            let mut direction = None;
-            for border in &borders_group {
-                let multi_polygon = MultiPolygon::new(
-                    border
-                        .into_iter()
-                        .map(|index| shapes[*index].clone())
-                        .collect::<Vec<Polygon>>(),
-                );
+            let bbox = AABB::from_corners(
+                [bounding_rect.min().x, bounding_rect.min().y],
+                [bounding_rect.max().x, bounding_rect.max().y],
+            );
 
-                let Some(rect) = multi_polygon.bounding_rect() else {
-                    continue;
-                };
+            let mut inside: Vec<Node<(usize, Vec<Polygon>, geo::Rect, bool, Option<Direction>)>> =
+                tree.drain_in_envelope(bbox)
+                    .filter_map(|node| {
+                        let Some(rect) = MultiPolygon::new(node.value.1.clone()).bounding_rect()
+                        else {
+                            return None;
+                        };
 
-                if rect.contains(&shapes_to_kern_border) {
-                    if is_horizontal {
-                        let l = shapes_to_kern_border.min().x - rect.min().x;
-                        let r = rect.max().x - shapes_to_kern_border.max().x;
+                        let Some(first) = node.value.1.first() else {
+                            return None;
+                        };
+                        let Some(center) = first.centroid() else {
+                            return None;
+                        };
 
-                        if (l - r).abs() < 0.1 {
-                            direction = Some(Direction::Center);
-                        } else if l > 2.0 * r {
-                            direction = Some(Direction::Left);
-                        } else if r > 1.1 * l
-                            || l - 0.5 < shapes_to_kern[0].bounding_rect().unwrap().height()
-                        {
-                            direction = Some(Direction::Right);
-                        } else {
-                            direction = Some(Direction::Center);
-                        }
-                        break;
-                    } else {
-                        let b = shapes_to_kern_border.min().y - rect.min().y;
-                        let u = rect.max().y - shapes_to_kern_border.max().y;
+                        let mut min_x = center.x();
+                        let mut min_y = center.y();
+                        let mut max_x = center.x();
+                        let mut max_y = center.y();
 
-                        if b > 2.0 * u {
-                            direction = Some(Direction::Bottom);
-                        } else if u > 1.1 * b
-                            || b < shapes_to_kern[0].bounding_rect().unwrap().width()
-                        {
-                            direction = Some(Direction::Top);
-                        } else {
-                            direction = Some(Direction::Center);
-                        }
-                        break;
-                    }
-                }
-            }
+                        for polygon in &node.value.1 {
+                            let Some(center) = polygon.centroid() else {
+                                continue;
+                            };
 
-            let Some(direction) = direction else {
-                continue;
-            };
+                            if min_x > center.x() {
+                                min_x = center.x();
+                            }
+                            if min_y > center.y() {
+                                min_y = center.y();
+                            }
 
-            println!("Direction: {:?}", direction);
-
-            // Push up or right but then rejustify
-
-            let (dx, dy) = if is_horizontal {
-                (1.0, 0.0)
-            } else {
-                (0.0, 1.0)
-            };
-
-            let original_shapes_to_kern = shapes_to_kern.clone();
-            for i in 1..shapes_to_kern.len() {
-                // Make sure shapes_to_kern[i] is past shapes_to_kern[i-1]
-                // Shipping can cause this ^
-                let mut distances_kerened = 0.;
-                if is_horizontal {
-                    let dx = shapes_to_kern[i].bounding_rect().unwrap().center().x
-                        - shapes_to_kern[i - 1].bounding_rect().unwrap().center().x
-                        - epsilon;
-                    if dx < 0.0 {
-                        shapes_to_kern[i].translate_mut(-dx, 0.0);
-                        distances_kerened += -dx;
-                    }
-                } else {
-                    let dy = shapes_to_kern[i].bounding_rect().unwrap().center().y
-                        - shapes_to_kern[i - 1].bounding_rect().unwrap().center().y
-                        - epsilon;
-                    if dy < 0.0 {
-                        shapes_to_kern[i].translate_mut(0.0, -dy);
-                        distances_kerened += -dy;
-                    }
-                }
-
-                // kern two letters
-                let mut distance = Euclidean.distance(&shapes_to_kern[i - 1], &shapes_to_kern[i]);
-                if distance < space {
-                    // Go over
-                    let mut max = distance;
-                    while distance < space {
-                        let d = 1.1 * (space - distance) + epsilon;
-                        max = d;
-                        shapes_to_kern[i].translate_mut(d * dx, d * dy);
-                        distances_kerened += d;
-                        distance = Euclidean.distance(&shapes_to_kern[i - 1], &shapes_to_kern[i]);
-                    }
-
-                    // Binary search
-                    let mut mid = epsilon * 2.0;
-                    while (distance - space).abs() < epsilon && mid >= epsilon {
-                        mid = max / 2.;
-                        let new_shape = shapes_to_kern[i].translate(-mid * dx, -mid * dy);
-                        distances_kerened -= mid;
-                        distance = Euclidean.distance(&shapes_to_kern[i - 1], &shapes_to_kern[i]);
-                        if distance > space {
-                            shapes_to_kern[i] = new_shape;
-                        }
-                        max = mid;
-                    }
-                }
-
-                // Check to see if we have to respect the distance for the rest of the letters
-                if distances_kerened > 0. && i + 1 < shapes_to_kern.len() {
-                    data.context
-                        .register_global_property(js_string!("j"), i + 1, Attribute::all())
-                        .expect("property shouldn't exist");
-
-                    if let Ok(JsValue::Boolean(value)) =
-                        data.context.eval(Source::from_bytes(&self.respect_space))
-                    {
-                        if value {
-                            for j in i + 1..shapes_to_kern.len() {
-                                shapes_to_kern[j]
-                                    .translate_mut(distances_kerened * dx, distances_kerened * dy);
+                            if max_x < center.x() {
+                                max_x = center.x();
+                            }
+                            if max_y < center.y() {
+                                max_y = center.y();
                             }
                         }
+
+                        Some(Node {
+                            point: node.point,
+                            value: (
+                                node.value.0,
+                                node.value.1,
+                                rect,
+                                (max_x - min_x) >= (max_y - min_y),
+                                None,
+                            ),
+                        })
+                    })
+                    .collect();
+
+            // Calculating Relative Orientation
+            for i in 0..inside.len() {
+                for j in (i + 1)..inside.len() {
+                    // Dont reupdate
+                    if inside[j].value.4.is_some() {
+                        continue;
+                    }
+
+                    // Different orientations
+                    if inside[i].value.3 != inside[j].value.3 {
+                        continue;
+                    }
+
+                    let is_horizontal = inside[i].value.3;
+
+                    if is_horizontal {
+                        // Check for right
+                        if (inside[i].value.2.min().x - inside[j].value.2.min().x).abs() < 0.1 {
+                            inside[i].value.4 = Some(Direction::Right);
+                            inside[j].value.4 = Some(Direction::Right);
+                            break;
+                        }
+
+                        // Check for center
+                        if (inside[i].value.2.center().x - inside[j].value.2.center().x).abs() < 0.1
+                        {
+                            inside[i].value.4 = Some(Direction::Center);
+                            inside[j].value.4 = Some(Direction::Center);
+                            break;
+                        }
+
+                        // Check for left
+                        if (inside[i].value.2.max().x - inside[j].value.2.max().x).abs() < 0.1 {
+                            inside[i].value.4 = Some(Direction::Left);
+                            inside[j].value.4 = Some(Direction::Left);
+                            break;
+                        }
+                    } else {
+                        // Check for top
+                        if (inside[i].value.2.min().y - inside[j].value.2.min().y).abs() < 0.1 {
+                            inside[i].value.4 = Some(Direction::Top);
+                            inside[j].value.4 = Some(Direction::Top);
+                            break;
+                        }
+
+                        // Check for center
+                        if (inside[i].value.2.center().y - inside[j].value.2.center().y).abs() < 0.1
+                        {
+                            inside[i].value.4 = Some(Direction::Center);
+                            inside[j].value.4 = Some(Direction::Center);
+                            break;
+                        }
+
+                        // Check for Bottom
+                        if (inside[i].value.2.max().x - inside[j].value.2.max().y).abs() < 0.1 {
+                            inside[i].value.4 = Some(Direction::Bottom);
+                            inside[j].value.4 = Some(Direction::Bottom);
+                            break;
+                        }
+                    }
+                }
+
+                if inside[i].value.4.is_some() {
+                    continue;
+                }
+
+                println!("Did not get value based on other text");
+                if inside[i].value.3 {
+                    let l = inside[i].value.2.min().x - bounding_rect.min().x;
+                    let r = bounding_rect.max().x - inside[i].value.2.max().x;
+
+                    if (l - r).abs() < 0.1 {
+                        inside[i].value.4 = Some(Direction::Center);
+                    } else if l > 2. * r {
+                        inside[i].value.4 = Some(Direction::Left);
+                    } else if r > 1.1 * l || l - 0.5 < inside[i].value.2.height() {
+                        inside[i].value.4 = Some(Direction::Right);
+                    } else {
+                        inside[i].value.4 = Some(Direction::Center);
+                    }
+                } else {
+                    let u = inside[i].value.2.min().y - bounding_rect.min().y;
+                    let b = bounding_rect.max().y - inside[i].value.2.max().y;
+
+                    if (b - u).abs() < 0.1 {
+                        inside[i].value.4 = Some(Direction::Center);
+                    } else if b > 2. * u {
+                        inside[i].value.4 = Some(Direction::Top);
+                    } else if u > 1.1 * b || b - 0.5 < inside[i].value.2.height() {
+                        inside[i].value.4 = Some(Direction::Bottom);
+                    } else {
+                        inside[i].value.4 = Some(Direction::Center);
                     }
                 }
             }
 
-            let new_shapes_to_kern_border = MultiPolygon::new(shapes_to_kern.clone())
-                .bounding_rect()
-                .unwrap();
-            match direction {
-                Direction::Left => {
-                    for shape in &mut shapes_to_kern {
-                        shape.translate_mut(
-                            shapes_to_kern_border.max().x - new_shapes_to_kern_border.max().x,
-                            0.,
-                        );
+            for mut node in inside {
+                data.context
+                    .register_global_property(js_string!("i"), node.value.0, Attribute::all())
+                    .expect("property shouldn't exist");
+
+                if node.value.1.len() < 2 {
+                    continue;
+                }
+                let is_horizontal = node.value.3;
+                if is_horizontal {
+                    node.value.1.sort_by(|l, r| {
+                        l.bounding_rect()
+                            .unwrap()
+                            .min()
+                            .x
+                            .partial_cmp(&r.bounding_rect().unwrap().min().x)
+                            .unwrap()
+                    });
+                } else {
+                    node.value.1.sort_by(|l, r| {
+                        l.bounding_rect()
+                            .unwrap()
+                            .min()
+                            .y
+                            .partial_cmp(&r.bounding_rect().unwrap().min().y)
+                            .unwrap()
+                    });
+                }
+
+                let Some(direction) = node.value.4 else {
+                    continue;
+                };
+
+                let original_shapes_to_kern = node.value.1.clone();
+
+                kern_group(
+                    &mut node.value.1,
+                    epsilon,
+                    space,
+                    &self.respect_space,
+                    node.value.3,
+                    direction,
+                    &mut data.context,
+                );
+
+                let mut new_inner_shapes_additions = Vec::new();
+                'inner_shapes_loop: for inner_shape_index in &inner_shapes {
+                    let inner_shape_index = *inner_shape_index;
+                    for i in 0..original_shapes_to_kern.len() {
+                        if original_shapes_to_kern[i].contains(&shapes[inner_shape_index]) {
+                            let og_framme_mid =
+                                original_shapes_to_kern[i].bounding_rect().unwrap().center();
+                            let ke_framme_mid = node.value.1[i].bounding_rect().unwrap().center();
+
+                            let dif = ke_framme_mid - og_framme_mid;
+                            new_inner_shapes_additions.push((
+                                inner_shape_index,
+                                shapes[inner_shape_index].translate(dif.x, dif.y),
+                            ));
+
+                            continue 'inner_shapes_loop;
+                        }
                     }
                 }
-                Direction::Bottom => {
-                    for shape in &mut shapes_to_kern {
-                        shape.translate_mut(
-                            0.,
-                            shapes_to_kern_border.max().y - new_shapes_to_kern_border.max().y,
-                        );
-                    }
+
+                for (index, shape) in new_inner_shapes_additions {
+                    inner_shapes.remove(&index);
+                    new_inner_shapes.push(shape);
                 }
-                Direction::Center => {
-                    let dx = dx
-                        * (shapes_to_kern_border.center().x - new_shapes_to_kern_border.center().x);
-                    let dy = dy
-                        * (shapes_to_kern_border.center().y - new_shapes_to_kern_border.center().y);
-                    for shape in &mut shapes_to_kern {
-                        shape.translate_mut(dx, dy);
-                    }
-                }
-                _ => {}
+
+                new_group.push(node.value.1);
             }
-
-            let mut new_inner_shapes_additions = Vec::new();
-            'inner_shapes_loop: for inner_shape_index in &inner_shapes {
-                let inner_shape_index = *inner_shape_index;
-                for i in 0..original_shapes_to_kern.len() {
-                    if original_shapes_to_kern[i].contains(&shapes[inner_shape_index]) {
-                        let og_framme_mid =
-                            original_shapes_to_kern[i].bounding_rect().unwrap().center();
-                        let ke_framme_mid = shapes_to_kern[i].bounding_rect().unwrap().center();
-
-                        let dif = ke_framme_mid - og_framme_mid;
-                        new_inner_shapes_additions.push((
-                            inner_shape_index,
-                            shapes[inner_shape_index].translate(dif.x, dif.y),
-                        ));
-
-                        continue 'inner_shapes_loop;
-                    }
-                }
-            }
-
-            for (index, shape) in new_inner_shapes_additions {
-                inner_shapes.remove(&index);
-                new_inner_shapes.push(shape);
-            }
-
-            new_group.push(shapes_to_kern);
         }
 
         let mut shapes = data.shapes.lock().unwrap();

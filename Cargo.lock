@@ -474,6 +474,7 @@ dependencies = [
  "depth_tree",
  "geo",
  "geo-clipper",
+ "rstar",
 ]
 
 [[package]]
