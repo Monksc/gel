@@ -1,9 +1,10 @@
 use boa_engine::Source;
 use geo::{AffineOps, AffineTransform};
+use serde::{Deserialize, Serialize};
 
 use crate::*;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Transformation {
     pub set_group: String,
     pub get_group: String,

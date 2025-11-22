@@ -344,7 +344,7 @@ dependencies = [
 [[package]]
 name = "depth_tree"
 version = "0.1.0"
-source = "git+https://github.com/Monksc/depth_tree?rev=dd6773fe507050707f1eb835d288a99b22f8a614#dd6773fe507050707f1eb835d288a99b22f8a614"
+source = "git+https://github.com/Monksc/depth_tree?rev=6c16a5b05c8752ae4d2fa4e8d628c23c0ee2bd2c#6c16a5b05c8752ae4d2fa4e8d628c23c0ee2bd2c"
 dependencies = [
  "geo",
  "lyon",
@@ -475,6 +475,7 @@ dependencies = [
  "geo",
  "geo-clipper",
  "rstar",
+ "serde",
 ]
 
 [[package]]

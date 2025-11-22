@@ -300,7 +300,11 @@ fn test_kern() {
 fn kern_file() {
     let queries = get_kerning_settings_no_outside_box();
 
-    let path: Box<std::path::Path> = Box::from(std::path::Path::new("./testsvg/test1.svg"));
+    // let path: Box<std::path::Path> = Box::from(std::path::Path::new("./testsvg/test1.svg"));
+    let path: Box<std::path::Path> = Box::from(std::path::Path::new(
+        // "/home/cameron/Downloads/Cal Poly Kern.svg",
+        "/home/cameron/Downloads/cal poly ced.svg",
+    ));
     let mut data: Data = (path, 0.0001).into();
 
     println!("Start the Queries");

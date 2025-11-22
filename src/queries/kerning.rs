@@ -3,6 +3,7 @@ use geo::{
     BoundingRect, Centroid, Contains, Distance, Euclidean, MultiPolygon, Polygon, Translate,
 };
 use rstar::{AABB, RTreeObject};
+use serde::{Deserialize, Serialize};
 
 use crate::*;
 
@@ -20,7 +21,7 @@ impl<T> RTreeObject for Node<T> {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Kerning {
     pub set_group: String,
     pub get_group: String,
@@ -369,7 +370,6 @@ impl Query for Kerning {
                     continue;
                 }
 
-                println!("Did not get value based on other text");
                 if inside[i].value.3 {
                     let l = inside[i].value.2.min().x - bounding_rect.min().x;
                     let r = bounding_rect.max().x - inside[i].value.2.max().x;

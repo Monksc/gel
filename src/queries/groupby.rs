@@ -1,8 +1,9 @@
 use boa_engine::{JsValue, Source, js_string, property::Attribute};
+use serde::{Deserialize, Serialize};
 
 use crate::*;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GroupBy {
     pub set_group: String,
     pub get_group: String,

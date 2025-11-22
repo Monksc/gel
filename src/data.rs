@@ -62,16 +62,72 @@ fn get_points(polygons: &[Polygon]) -> Vec<Point> {
 
 impl From<Vec<Polygon>> for Data {
     fn from(value: Vec<Polygon>) -> Self {
+        Self::from_respect_indexes(value).0
+    }
+}
+
+impl From<Box<std::path::Path>> for Data {
+    fn from(value: Box<std::path::Path>) -> Self {
+        let lines = depth_tree::import_svg(&(*value), 0.0001).unwrap();
+
+        let polygons: Vec<Polygon> = lines
+            .into_iter()
+            .map(|line| Polygon::new(line, Vec::new()))
+            .collect();
+
+        polygons.into()
+    }
+}
+
+impl From<(Box<std::path::Path>, f64)> for Data {
+    fn from(value: (Box<std::path::Path>, f64)) -> Self {
+        let lines =
+            MultiLineString::new(depth_tree::import_svg(&(*value.0), value.1 as f32).unwrap());
+        println!("DONE THIS");
+        let mut lines = lines.simplify(value.1);
+        println!("Simplified");
+
+        let (min_x, min_y) = lines.bounding_rect().unwrap().min().x_y();
+        lines.translate_mut(-min_x, -min_y);
+        // lines.scale_mut(0.01);
+        let lines = lines.0;
+
+        let polygons: Vec<Polygon> = lines
+            .into_iter()
+            .map(|line| Polygon::new(line, Vec::new()))
+            .collect();
+
+        polygons.into()
+    }
+}
+
+impl Data {
+    pub fn query<T: Query>(&mut self, queries: Vec<T>) -> Result<(), String> {
+        let mut i = 0;
+        let n = queries.len();
+        for mut query in queries {
+            println!("QUERY: {} out of {}", i, n);
+            i += 1;
+            query.query(self)?;
+        }
+
+        Ok(())
+    }
+
+    pub fn from_respect_indexes(value: Vec<Polygon>) -> (Self, Vec<usize>) {
+        let value: Vec<(usize, Polygon)> = value.into_iter().enumerate().collect();
         let len = value.len();
         println!("Len: {}", len);
-        let tree: Tree<Polygon> = Tree::from_polygon(value);
+        let tree: Tree<(usize, Polygon)> = Tree::from_polygon_id(value);
         println!("Built Tree");
 
         let mut shapes = Vec::with_capacity(len);
         let mut depths = Vec::with_capacity(len);
+        let mut indexes = Vec::with_capacity(len);
 
         for (depth, polygon) in tree.iter() {
-            shapes.push(polygon.clone());
+            shapes.push(polygon.1.clone());
+            indexes.push(polygon.0);
             depths.push(depth);
         }
 
@@ -509,60 +565,14 @@ impl From<Vec<Polygon>> for Data {
         }
 
         println!("Build Data");
-        Self {
-            shapes,
-            depths,
-            groups,
-            context,
-        }
-    }
-}
-
-impl From<Box<std::path::Path>> for Data {
-    fn from(value: Box<std::path::Path>) -> Self {
-        let lines = depth_tree::import_svg(&(*value), 0.0001).unwrap();
-
-        let polygons: Vec<Polygon> = lines
-            .into_iter()
-            .map(|line| Polygon::new(line, Vec::new()))
-            .collect();
-
-        polygons.into()
-    }
-}
-
-impl From<(Box<std::path::Path>, f64)> for Data {
-    fn from(value: (Box<std::path::Path>, f64)) -> Self {
-        let lines =
-            MultiLineString::new(depth_tree::import_svg(&(*value.0), value.1 as f32).unwrap());
-        println!("DONE THIS");
-        let mut lines = lines.simplify(value.1);
-        println!("Simplified");
-
-        let (min_x, min_y) = lines.bounding_rect().unwrap().min().x_y();
-        lines.translate_mut(-min_x, -min_y);
-        // lines.scale_mut(0.01);
-        let lines = lines.0;
-
-        let polygons: Vec<Polygon> = lines
-            .into_iter()
-            .map(|line| Polygon::new(line, Vec::new()))
-            .collect();
-
-        polygons.into()
-    }
-}
-
-impl Data {
-    pub fn query<T: Query>(&mut self, queries: Vec<T>) -> Result<(), String> {
-        let mut i = 0;
-        let n = queries.len();
-        for mut query in queries {
-            println!("QUERY: {} out of {}", i, n);
-            i += 1;
-            query.query(self)?;
-        }
-
-        Ok(())
+        (
+            Self {
+                shapes,
+                depths,
+                groups,
+                context,
+            },
+            indexes,
+        )
     }
 }
