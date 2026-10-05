@@ -1,0 +1,35 @@
+[package]
+name = "gel"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+boa_engine = "0.20.0"
+geo = "0.31.0"
+# TEMPORARY dev-time override so gel-mcp picks up the depth_tree perf fix
+# (see depth_tree/src/tree.rs) before it's committed/pushed there and the
+# pinned rev below is bumped to match. Revert to the git dep once that's done.
+#depth_tree = { git="https://github.com/Monksc/depth_tree", rev="6c16a5b05c8752ae4d2fa4e8d628c23c0ee2bd2c" }
+depth_tree = { path="../../depth_tree" }
+geo-clipper = "0.9.0"
+rstar = "0.12.2"
+serde = { version = "1.0.228", features = ["derive"] }
+serde_json = "1.0"
+quick-xml = "0.42.0"
+
+# Nesting engine, only pulled in with the `nest` feature. Pinned to the exact
+# commit gel-mcp already uses (`lbf`, the reference optimizer, is not on
+# crates.io). Optional so consumers that only run queries - ivy - do not build
+# a packing engine they never call.
+jagua-rs = { git = "https://github.com/JeroenGar/jagua-rs", rev = "d4046d5cd7395c2ed630bf9001fcce406a2df8ab", optional = true }
+lbf = { git = "https://github.com/JeroenGar/jagua-rs", rev = "d4046d5cd7395c2ed630bf9001fcce406a2df8ab", optional = true }
+rand = { version = "0.10", optional = true }
+
+[features]
+default = []
+# Adds the `Nest` instruction. A program containing `Nest` fails to parse
+# without it ("unknown variant"), which is the intended loud failure.
+nest = ["dep:jagua-rs", "dep:lbf", "dep:rand"]
+
+[dev-dependencies]
+serde_json = "1.0"

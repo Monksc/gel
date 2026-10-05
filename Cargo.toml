@@ -1,15 +1,9 @@
-[package]
-name = "gel"
-version = "0.1.0"
-edition = "2024"
-
-[dependencies]
-boa_engine = "0.20.0"
-geo = "0.31.0"
-depth_tree = { git="https://github.com/Monksc/depth_tree", rev="6c16a5b05c8752ae4d2fa4e8d628c23c0ee2bd2c" }
-#depth_tree = { path="../depth_tree" }
-geo-clipper = "0.9.0"
-rstar = "0.12.2"
-serde = "1.0.228"
-
-[dev-dependencies]
+# Pure workspace manifest - no [package] here. The `gel` crate itself now
+# lives in gel-lib/ (a plain `git = "..."` dependency, like ivy's, resolves
+# it there fine by package name alone - confirmed empirically, no `path`
+# or `package` field needed on the consumer side). Sibling tools that build
+# on `gel` but shouldn't bloat its own dependency list live alongside it:
+# gel-mcp and gel-cli.
+[workspace]
+members = ["gel-lib", "gel-mcp", "gel-cli"]
+resolver = "3"

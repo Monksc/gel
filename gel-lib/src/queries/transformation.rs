@@ -13,10 +13,13 @@ pub struct Transformation {
 
 impl Query for Transformation {
     fn query(&mut self, data: &mut Data) -> Result<(), String> {
+        let get_group = resolve_template(data, &self.get_group, "Transformation.get_group")?;
+        let set_group = resolve_template(data, &self.set_group, "Transformation.set_group")?;
+
         let shapes_indexes = {
             let groups = data.groups.lock().unwrap();
-            let Some(shapes_indexes) = groups.get(&self.get_group) else {
-                return Err(format!("Could not find '{}' in groups.", self.get_group));
+            let Some(shapes_indexes) = groups.get(&get_group) else {
+                return Err(format!("Could not find '{}' in groups.", get_group));
             };
             shapes_indexes.clone()
         };
@@ -58,7 +61,7 @@ impl Query for Transformation {
         }
 
         let mut groups = data.groups.lock().unwrap();
-        groups.insert(self.set_group.clone(), new_group);
+        groups.insert(set_group.clone(), new_group);
 
         shapes.append(&mut new_shapes);
 

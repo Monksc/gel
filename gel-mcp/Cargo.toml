@@ -1,0 +1,26 @@
+[package]
+name = "gel-mcp"
+version = "0.1.0"
+edition = "2024"
+
+[[bin]]
+name = "gel-mcp"
+path = "src/main.rs"
+
+[dependencies]
+gel = { path = "../gel-lib" }
+geo = "0.31.0"
+rmcp = { version = "3.1.4", features = ["transport-io"] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "io-std", "io-util"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+schemars = "1"
+anyhow = "1"
+uuid = { version = "1", features = ["v4"] }
+# Nesting engine, per DESIGN.md's hands-on evaluation (~/Projects/rust/eval).
+# `lbf` (the reference optimizer) isn't published on crates.io, so both are
+# pinned to the exact commit that eval was run against, for consistency.
+jagua-rs = { git = "https://github.com/JeroenGar/jagua-rs", rev = "d4046d5cd7395c2ed630bf9001fcce406a2df8ab" }
+lbf = { git = "https://github.com/JeroenGar/jagua-rs", rev = "d4046d5cd7395c2ed630bf9001fcce406a2df8ab" }
+rand = "0.10"
+svg = "0.18.0"

@@ -1,6 +1,14 @@
+use serde::{Deserialize, Serialize};
+
 use crate::*;
 
-#[derive(Debug, Clone)]
+/// Runs `instructions` once per subgroup of `get_group`, binding that subgroup
+/// to `iterator_name` so the body can refer to "the sign being worked on".
+///
+/// Serde applies when `T` is itself serialisable (i.e. `LoopOver<Instruction>`);
+/// the default `Box<dyn Query>` form stays usable in Rust but can't round-trip
+/// through JSON, which is what a layout program needs.
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LoopOver<T = Box<dyn Query>>
 where
     T: Query,
@@ -12,12 +20,14 @@ where
 
 impl<T: Query> Query for LoopOver<T> {
     fn query(&mut self, data: &mut Data) -> Result<(), String> {
+        let get_group = resolve_template(data, &self.get_group, "LoopOver.get_group")?;
+
         let groups = {
             let data_groups = data.groups.lock().unwrap();
-            if let Some(group) = data_groups.get(&self.get_group) {
+            if let Some(group) = data_groups.get(&get_group) {
                 group.clone()
             } else {
-                return Err(format!("Could not find '{}' in groups.", self.get_group));
+                return Err(format!("Could not find '{}' in groups.", get_group));
             }
         };
 
@@ -67,7 +77,7 @@ mod tests {
         };
 
         if let Err(err) = loopover.query(&mut data) {
-            println!("Error: {}", err);
+            eprintln!("Error: {}", err);
             assert!(false);
         }
 

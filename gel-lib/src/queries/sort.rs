@@ -12,13 +12,21 @@ pub struct Sort {
 
 impl Query for Sort {
     fn query(&mut self, data: &mut Data) -> Result<(), String> {
+        let get_group = resolve_template(data, &self.get_group, "Sort.get_group")?;
+        let set_group = resolve_template(data, &self.set_group, "Sort.set_group")?;
+
         let shapes_indexes = {
             let groups = data.groups.lock().unwrap();
-            let Some(shapes_indexes) = groups.get(&self.get_group) else {
-                return Err(format!("Could not find '{}' in groups.", self.get_group));
+            let Some(shapes_indexes) = groups.get(&get_group) else {
+                return Err(format!("Could not find '{}' in groups.", get_group));
             };
             shapes_indexes.clone()
         };
+
+        // `l` and `r` are SLOT ordinals of get_group - see Filter for why
+        // the iterated group has to be marked.
+        let current = data.current_group.clone();
+        let previous = current.lock().unwrap().replace(get_group.clone());
 
         let mut indexes: Vec<usize> = (0..shapes_indexes.len()).collect();
         indexes.sort_by(|l, r| {
@@ -42,6 +50,8 @@ impl Query for Sort {
             }
         });
 
+        *current.lock().unwrap() = previous;
+
         let mut new_group = Vec::new();
 
         for index in indexes {
@@ -49,7 +59,7 @@ impl Query for Sort {
         }
 
         let mut groups = data.groups.lock().unwrap();
-        groups.insert(self.set_group.clone(), new_group);
+        groups.insert(set_group.clone(), new_group);
 
         Ok(())
     }

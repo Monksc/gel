@@ -12,14 +12,17 @@ pub struct GroupBy {
 
 impl Query for GroupBy {
     fn query(&mut self, data: &mut Data) -> Result<(), String> {
+        let get_group = resolve_template(data, &self.get_group, "GroupBy.get_group")?;
+        let set_group = resolve_template(data, &self.set_group, "GroupBy.set_group")?;
+
         let shapes_indexes = {
             let mut groups = data.groups.lock().unwrap();
-            let Some(shapes_indexes) = groups.get(&self.get_group) else {
-                return Err(format!("Could not find '{}' in groups.", self.get_group));
+            let Some(shapes_indexes) = groups.get(&get_group) else {
+                return Err(format!("Could not find '{}' in groups.", get_group));
             };
 
             if shapes_indexes.is_empty() {
-                groups.insert(self.set_group.clone(), Vec::new());
+                groups.insert(set_group.clone(), Vec::new());
                 return Ok(());
             }
 
@@ -31,8 +34,15 @@ impl Query for GroupBy {
 
         {
             let mut groups = data.groups.lock().unwrap();
-            groups.insert(self.set_group.clone(), new_groups.clone());
+            groups.insert(set_group.clone(), new_groups.clone());
         }
+
+        // `i` is a slot ordinal of get_group, so mark it. NOTE `j` indexes
+        // the accumulating set_group instead, and only one group can be
+        // current - inside a GroupBy predicate, address `j` explicitly as
+        // `area(set_group_name, j)`.
+        let current = data.current_group.clone();
+        let previous = current.lock().unwrap().replace(get_group.clone());
 
         'outer: for i in 1..shapes_indexes.len() {
             data.context
@@ -50,7 +60,7 @@ impl Query for GroupBy {
                         new_groups[j].append(&mut shapes_indexes[i].clone());
 
                         let mut groups = data.groups.lock().unwrap();
-                        groups.insert(self.set_group.clone(), new_groups.clone());
+                        groups.insert(set_group.clone(), new_groups.clone());
                         continue 'outer;
                     }
                 }
@@ -58,12 +68,15 @@ impl Query for GroupBy {
             new_groups.push(shapes_indexes[i].clone());
             {
                 let mut groups = data.groups.lock().unwrap();
-                groups.insert(self.set_group.clone(), new_groups.clone());
+                groups.insert(set_group.clone(), new_groups.clone());
             }
         }
+
+        *current.lock().unwrap() = previous;
+
         {
             let mut groups = data.groups.lock().unwrap();
-            groups.insert(self.set_group.clone(), new_groups);
+            groups.insert(set_group.clone(), new_groups);
         }
 
         Ok(())
@@ -87,7 +100,7 @@ mod tests {
         };
 
         if let Err(err) = groupby.query(&mut data) {
-            println!("Error: {}", err);
+            eprintln!("Error: {}", err);
             assert!(false);
         }
 

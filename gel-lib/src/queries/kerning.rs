@@ -163,6 +163,14 @@ fn kern_group(
 
 impl Query for Kerning {
     fn query(&mut self, data: &mut Data) -> Result<(), String> {
+        let get_group = resolve_template(data, &self.get_group, "Kerning.get_group")?;
+        let set_group = resolve_template(data, &self.set_group, "Kerning.set_group")?;
+        let borders_group = resolve_template(data, &self.borders_group, "Kerning.borders_group")?;
+        let get_inner_shapes =
+            resolve_template(data, &self.get_inner_shapes, "Kerning.get_inner_shapes")?;
+        let set_inner_shapes =
+            resolve_template(data, &self.set_inner_shapes, "Kerning.set_inner_shapes")?;
+
         let mut space: f64 = 0.0;
         if let Ok(value) = data.context.eval(Source::from_bytes(&self.space)) {
             if let Ok(value) = value.to_f32(&mut data.context) {
@@ -179,19 +187,19 @@ impl Query for Kerning {
 
         let (kerned_group, borders_group, mut inner_shapes) = {
             let groups = data.groups.lock().unwrap();
-            let Some(shapes_indexes) = groups.get(&self.get_group) else {
-                return Err(format!("Could not find '{}' in groups.", self.get_group));
+            let Some(shapes_indexes) = groups.get(&get_group) else {
+                return Err(format!("Could not find '{get_group}' in groups."));
             };
-            let Some(borders_indexes) = groups.get(&self.borders_group) else {
+            let Some(borders_indexes) = groups.get(&borders_group) else {
                 return Err(format!(
                     "Could not find '{}' in groups.",
-                    self.borders_group
+                    borders_group
                 ));
             };
-            let Some(inner_shapes) = groups.get(&self.get_inner_shapes) else {
+            let Some(inner_shapes) = groups.get(&get_inner_shapes) else {
                 return Err(format!(
                     "Could not find '{}' in groups.",
-                    self.get_inner_shapes
+                    get_inner_shapes
                 ));
             };
             (
@@ -501,8 +509,8 @@ impl Query for Kerning {
         }
 
         let mut groups = data.groups.lock().unwrap();
-        groups.insert(self.set_group.clone(), group_indexes);
-        groups.insert(self.set_inner_shapes.clone(), inner_groups);
+        groups.insert(set_group, group_indexes);
+        groups.insert(set_inner_shapes, inner_groups);
 
         Ok(())
     }
