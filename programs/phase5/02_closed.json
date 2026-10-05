@@ -1,0 +1,13 @@
+[
+  {"Filter": {"get_group": "main", "set_group": "cells",
+              "code": "depth(i) == 0 && area(i) > 40"}},
+  {"RunCode": {"code": "n = 0;"}},
+  {"LoopOver": {"get_group": "cells", "iterator_name": "cell", "instructions": [
+    {"RunCode": {"code": "cell_i = group_index('cell', 0, 0);"}},
+
+    {"Filter": {"get_group": "main", "set_group": "closed-{n}",
+                "code": "(function(){ var f = frame('cell', 0); var s = frame(i); return s.min_x>=f.min_x && s.max_x<=f.max_x && s.min_y>=f.min_y && s.max_y<=f.max_y && is_visible(i) && i != cell_i && area(i) > 0; })()"}},
+
+    {"RunCode": {"code": "n = n + 1;"}}
+  ]}}
+]

@@ -1,0 +1,287 @@
+[
+ {
+  "Filter": {
+   "get_group": "main",
+   "set_group": "cells",
+   "code": "depth(i) == 0 && area(i) > 40"
+  }
+ },
+ {
+  "RunCode": {
+   "code": "n = 0;"
+  }
+ },
+ {
+  "LoopOver": {
+   "get_group": "cells",
+   "iterator_name": "cell",
+   "instructions": [
+    {
+     "RunCode": {
+      "code": "cell_i = group_index('cell', 0, 0); cell_area = area('cell', 0);"
+     }
+    },
+    {
+     "Filter": {
+      "get_group": "main",
+      "set_group": "closed-{n}",
+      "code": "((function(){ var f = frame('cell', 0); var s = frame(i); return s.min_x>=f.min_x && s.max_x<=f.max_x && s.min_y>=f.min_y && s.max_y<=f.max_y && is_visible(i) && i != cell_i; })()) && area(i) > 0"
+     }
+    },
+    {
+     "Sort": {
+      "get_group": "closed-{n}",
+      "set_group": "bysize-{n}",
+      "compare": "area(l) > area(r)"
+     }
+    },
+    {
+     "RunCode": {
+      "code": "border_is_cell = !(area('bysize-' + n, 0) > 0.9 * cell_area);"
+     }
+    },
+    {
+     "If": {
+      "condition": "border_is_cell",
+      "instructions": [
+       {
+        "Copy": {
+         "get_group": "cell",
+         "set_group": "border-{n}"
+        }
+       }
+      ]
+     }
+    },
+    {
+     "If": {
+      "condition": "!border_is_cell",
+      "instructions": [
+       {
+        "Copy": {
+         "get_group": "bysize-{n}",
+         "get_index": 0,
+         "set_group": "border-{n}"
+        }
+       }
+      ]
+     }
+    },
+    {
+     "Filter": {
+      "get_group": "main",
+      "set_group": "braille-{n}",
+      "code": "((function(){ var f = frame('cell', 0); var s = frame(i); return s.min_x>=f.min_x && s.max_x<=f.max_x && s.min_y>=f.min_y && s.max_y<=f.max_y && is_visible(i) && i != cell_i; })()) && area(i) > 0 && circle_metrics(i).circle > 0.9 && area(i) < 0.01"
+     }
+    },
+    {
+     "RunCode": {
+      "code": "border_i = group_index('border-' + n, 0, 0);"
+     }
+    },
+    {
+     "Filter": {
+      "get_group": "main",
+      "set_group": "cands-{n}",
+      "code": "((function(){ var f = frame('cell', 0); var s = frame(i); return s.min_x>=f.min_x && s.max_x<=f.max_x && s.min_y>=f.min_y && s.max_y<=f.max_y && is_visible(i) && i != cell_i; })()) && area(i) > 0 && i != border_i && !(circle_metrics(i).circle > 0.9 && area(i) < 0.01)"
+     }
+    },
+    {
+     "Flatten": {
+      "get_group": "closed-{n}",
+      "set_group": "flat-{n}"
+     }
+    },
+    {
+     "Offset": {
+      "get_group": "flat-{n}",
+      "set_group": "grown-{n}",
+      "amount": "0.010"
+     }
+    },
+    {
+     "Offset": {
+      "get_group": "grown-{n}",
+      "set_group": "eroded-{n}",
+      "amount": "-0.011"
+     }
+    },
+    {
+     "Difference": {
+      "get_group": "eroded-{n}",
+      "with_group": "flat-{n}",
+      "set_group": "bridges-{n}"
+     }
+    },
+    {
+     "Offset": {
+      "get_group": "bridges-{n}",
+      "set_group": "bad-{n}",
+      "amount": "0.030"
+     }
+    },
+    {
+     "SetOp": {
+      "get_group": "none",
+      "with_group": "none",
+      "set_group": "flagged-{n}",
+      "op": "union"
+     }
+    },
+    {
+     "LoopOver": {
+      "get_group": "cands-{n}",
+      "iterator_name": "c",
+      "instructions": [
+       {
+        "Intersect": {
+         "get_group": "c",
+         "with_group": "bad-{n}",
+         "set_group": "ov"
+        }
+       },
+       {
+        "If": {
+         "condition": "area('c',0) > 0 && area('ov',0) / area('c',0) > 0.2",
+         "instructions": [
+          {
+           "SetOp": {
+            "get_group": "flagged-{n}",
+            "with_group": "c",
+            "set_group": "flagged-{n}",
+            "op": "union"
+           }
+          }
+         ]
+        }
+       }
+      ]
+     }
+    },
+    {
+     "RunCode": {
+      "code": "grew = true;"
+     }
+    },
+    {
+     "While": {
+      "condition": "grew",
+      "max_iterations": 30,
+      "instructions": [
+       {
+        "RunCode": {
+         "code": "before = shape_count('flagged-' + n);"
+        }
+       },
+       {
+        "If": {
+         "condition": "before > 0",
+         "instructions": [
+          {
+           "Flatten": {
+            "get_group": "flagged-{n}",
+            "set_group": "fflat-{n}"
+           }
+          },
+          {
+           "Offset": {
+            "get_group": "fflat-{n}",
+            "set_group": "zone-{n}",
+            "amount": "0.25"
+           }
+          },
+          {
+           "LoopOver": {
+            "get_group": "cands-{n}",
+            "iterator_name": "c",
+            "instructions": [
+             {
+              "Intersect": {
+               "get_group": "c",
+               "with_group": "zone-{n}",
+               "set_group": "ov2"
+              }
+             },
+             {
+              "If": {
+               "condition": "area('ov2',0) > 0",
+               "instructions": [
+                {
+                 "SetOp": {
+                  "get_group": "flagged-{n}",
+                  "with_group": "c",
+                  "set_group": "flagged-{n}",
+                  "op": "union"
+                 }
+                }
+               ]
+              }
+             }
+            ]
+           }
+          }
+         ]
+        }
+       },
+       {
+        "RunCode": {
+         "code": "grew = shape_count('flagged-' + n) > before;"
+        }
+       }
+      ]
+     }
+    },
+    {
+     "SetOp": {
+      "get_group": "closed-{n}",
+      "with_group": "flagged-{n}",
+      "set_group": "mill-{n}",
+      "op": "difference"
+     }
+    },
+    {
+     "If": {
+      "condition": "border_is_cell",
+      "instructions": [
+       {
+        "SetOp": {
+         "get_group": "mill-{n}",
+         "with_group": "border-{n}",
+         "set_group": "mill-{n}",
+         "op": "union"
+        }
+       }
+      ]
+     }
+    },
+    {
+     "Filter": {
+      "get_group": "main",
+      "set_group": "open-{n}",
+      "code": "((function(){ var f = frame('cell', 0); var s = frame(i); return s.min_x>=f.min_x && s.max_x<=f.max_x && s.min_y>=f.min_y && s.max_y<=f.max_y && is_visible(i) && i != cell_i; })()) && !(area(i) > 0)"
+     }
+    },
+    {
+     "SetOp": {
+      "get_group": "open-{n}",
+      "with_group": "flagged-{n}",
+      "set_group": "print-{n}",
+      "op": "union"
+     }
+    },
+    {
+     "Assert": {
+      "id": "c1_sign3_matches_golden",
+      "condition": "n != 3 || (shape_count('mill-3') == 73 && shape_count('print-3') == 15)",
+      "message": "sign 3: mill {shape_count('mill-3')} print {shape_count('print-3')}, golden is 73/15"
+     }
+    },
+    {
+     "RunCode": {
+      "code": "n = n + 1;"
+     }
+    }
+   ]
+  }
+ }
+]

@@ -1,0 +1,6 @@
+[
+  {"Filter": {"get_group": "main", "set_group": "cells",
+              "code": "depth(i) == 0 && area(i) > 40"}},
+  {"Assert": {"id": "cell_count", "condition": "len('cells') == 13",
+              "message": "expected 13 grid cells, got {len('cells')}"}}
+]

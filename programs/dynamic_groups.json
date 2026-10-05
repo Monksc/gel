@@ -1,0 +1,70 @@
+[
+  {
+    "RunCode": {
+      "code": "n = 0; stock = 30; kerf = 0.004;"
+    }
+  },
+  {
+    "Filter": {
+      "get_group": "main",
+      "set_group": "cut_profile",
+      "code": "area(i) > 1"
+    }
+  },
+  {
+    "Nest": {
+      "get_group": "cut_profile",
+      "set_group": "sheets",
+      "sheet_width": "stock",
+      "sheet_height": "stock",
+      "spacing": "0.125"
+    }
+  },
+  {
+    "LoopOver": {
+      "get_group": "sheets",
+      "iterator_name": "sheet",
+      "instructions": [
+        {
+          "Copy": {
+            "get_group": "sheet",
+            "set_group": "by_sheet",
+            "set_index": "n"
+          }
+        },
+        {
+          "Offset": {
+            "get_group": "sheet",
+            "set_group": "kerf-{n}",
+            "amount": "kerf"
+          }
+        },
+        {
+          "Emit": {
+            "get_group": "kerf-{n}",
+            "out": "output/sheet{n + 1}.svg"
+          }
+        },
+        {
+          "RunCode": {
+            "code": "n = n + 1;"
+          }
+        }
+      ]
+    }
+  },
+  {
+    "Assert": {
+      "id": "one_slot_per_sheet",
+      "condition": "len('by_sheet') == len('sheets')",
+      "message": "set_index did not accumulate: {len('by_sheet')} slots for {len('sheets')} sheets"
+    }
+  },
+  {
+    "Assert": {
+      "id": "a_group_per_sheet",
+      "condition": "shape_count('kerf-0') > 0 && shape_count('kerf-1') > 0",
+      "message": "dynamic group names did not produce one group per sheet"
+    }
+  }
+]

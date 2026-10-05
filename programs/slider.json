@@ -1,0 +1,195 @@
+[
+  {
+    "RunCode": {
+      "code": "job_name = 'SLIDER TEST'; sign_type = 'C.1'; thermoformed = false; radial_corners = true; corner_r = 0.63; radial_spacing = 0.125; stock = 30;"
+    }
+  },
+  {
+    "Define": {
+      "name": "round_corners",
+      "params": [
+        "src",
+        "out",
+        "r"
+      ],
+      "instructions": [
+        {
+          "RunCode": {
+            "code": "part_n = 0;"
+          }
+        },
+        {
+          "LoopOver": {
+            "get_group": "{src}",
+            "iterator_name": "part",
+            "instructions": [
+              {
+                "Offset": {
+                  "get_group": "part",
+                  "set_group": "tmp-{__call}",
+                  "amount": "-r",
+                  "join": "round"
+                }
+              },
+              {
+                "Offset": {
+                  "get_group": "tmp-{__call}",
+                  "set_group": "one-{__call}",
+                  "amount": "r",
+                  "join": "round"
+                }
+              },
+              {
+                "Assert": {
+                  "id": "corner_radius_survived",
+                  "condition": "len('one-' + __call, 0) > 0",
+                  "message": "part {part_n} vanished rounding to r={r} - narrower than 2r"
+                }
+              },
+              {
+                "SetOp": {
+                  "get_group": "{out}",
+                  "with_group": "one-{__call}",
+                  "set_group": "{out}",
+                  "op": "append"
+                }
+              },
+              {
+                "RunCode": {
+                  "code": "part_n = part_n + 1;"
+                }
+              }
+            ]
+          }
+        },
+        {
+          "SetData": {
+            "get_group": "{out}",
+            "data": {
+              "edges": "radial"
+            }
+          }
+        }
+      ]
+    }
+  },
+  {
+    "Define": {
+      "name": "nest_by_edges",
+      "params": [
+        "src",
+        "out",
+        "sheet",
+        "gap"
+      ],
+      "instructions": [
+        {
+          "RunCode": {
+            "code": "radial = get_data(src, 0, 'edges') == 'radial';"
+          }
+        },
+        {
+          "If": {
+            "condition": "radial",
+            "instructions": [
+              {
+                "Nest": {
+                  "get_group": "{src}",
+                  "set_group": "{out}",
+                  "sheet_width": "sheet",
+                  "sheet_height": "sheet",
+                  "spacing": "gap"
+                }
+              }
+            ]
+          }
+        },
+        {
+          "If": {
+            "condition": "!radial",
+            "instructions": [
+              {
+                "Nest": {
+                  "get_group": "{src}",
+                  "set_group": "{out}",
+                  "sheet_width": "sheet",
+                  "sheet_height": "sheet",
+                  "spacing": "0"
+                }
+              }
+            ]
+          }
+        }
+      ]
+    }
+  },
+  {
+    "Filter": {
+      "get_group": "main",
+      "set_group": "parts",
+      "code": "area(i) > 0.1"
+    }
+  },
+  {
+    "If": {
+      "condition": "thermoformed != true",
+      "instructions": [
+        {
+          "Offset": {
+            "get_group": "parts",
+            "set_group": "parts",
+            "amount": "0.005",
+            "join": "miter"
+          }
+        }
+      ]
+    }
+  },
+  {
+    "If": {
+      "condition": "radial_corners",
+      "instructions": [
+        {
+          "Call": {
+            "name": "round_corners",
+            "args": {
+              "src": "parts",
+              "out": "cut",
+              "r": "{corner_r}"
+            }
+          }
+        }
+      ]
+    }
+  },
+  {
+    "If": {
+      "condition": "!radial_corners",
+      "instructions": [
+        {
+          "Copy": {
+            "get_group": "parts",
+            "set_group": "cut"
+          }
+        }
+      ]
+    }
+  },
+  {
+    "Call": {
+      "name": "nest_by_edges",
+      "args": {
+        "src": "cut",
+        "out": "sheets",
+        "sheet": "{stock}",
+        "gap": "{radial_spacing}"
+      }
+    }
+  },
+  {
+    "Emit": {
+      "get_group": "sheets",
+      "out": "output/slider.svg"
+    }
+  }
+]

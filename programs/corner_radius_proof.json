@@ -1,0 +1,63 @@
+[
+  {
+    "RunCode": {
+      "code": "r = 0.63;"
+    }
+  },
+  {
+    "Filter": {
+      "get_group": "main",
+      "set_group": "part",
+      "code": "area(i) > 0.1"
+    }
+  },
+  {
+    "Offset": {
+      "get_group": "part",
+      "set_group": "eroded",
+      "amount": "-r",
+      "join": "round"
+    }
+  },
+  {
+    "Offset": {
+      "get_group": "eroded",
+      "set_group": "rounded",
+      "amount": "r",
+      "join": "round"
+    }
+  },
+  {
+    "Assert": {
+      "id": "input_is_12_sq_in",
+      "condition": "Math.abs(area('part', 0) - 12) < 0.01",
+      "message": "artwork should be a 6x2in rectangle, got {area('part', 0)}"
+    }
+  },
+  {
+    "Assert": {
+      "id": "radius_is_exact",
+      "condition": "Math.abs(area('rounded',0) - (area('part',0) - (4 - Math.PI)*r*r)) < 0.01",
+      "message": "rounded area {area('rounded',0)} != predicted {area('part',0) - (4-Math.PI)*r*r}"
+    }
+  },
+  {
+    "Assert": {
+      "id": "geometry_actually_changed",
+      "condition": "Math.abs(area('rounded',0) - area('part',0)) > 0.001",
+      "message": "the offsets cancelled out - no corners were rounded"
+    }
+  },
+  {
+    "Emit": {
+      "get_group": "part",
+      "out": "output/corner_before.svg"
+    }
+  },
+  {
+    "Emit": {
+      "get_group": "rounded",
+      "out": "output/corner_after.svg"
+    }
+  }
+]

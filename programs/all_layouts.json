@@ -1,0 +1,68 @@
+[
+  {
+    "RunCode": {
+      "code": "job_name = 'APPLE MT07'; sign_type = 'C.1'; material = 'gemini'; thickness = 0.03125; kerf = 0.004; thermoformed = false; radial_corners = true; corner_r = 0.63; radial_spacing = 0.125; stock = 30; face = 'up'; quantity = 1;"
+    }
+  },
+  {
+    "Filter": {
+      "get_group": "main",
+      "set_group": "cut_profile",
+      "code": "area(i) > 1"
+    }
+  },
+  {
+    "Filter": {
+      "get_group": "main",
+      "set_group": "detail",
+      "code": "area(i) <= 1 && area(i) > 0.02"
+    }
+  },
+  {
+    "Nest": {
+      "get_group": "cut_profile",
+      "set_group": "sheets",
+      "sheet_width": "stock",
+      "sheet_height": "stock",
+      "spacing": "radial_spacing"
+    }
+  },
+  {
+    "SetData": {
+      "get_group": "detail",
+      "data": {
+        "stroke": "rgb(0,90,200)",
+        "layer": "print"
+      }
+    }
+  },
+  {
+    "AddText": {
+      "text": "job_name + '  -  ' + sign_type + '  -  FACE ' + face.toUpperCase()",
+      "anchor_group": "sheets",
+      "size": "0.9",
+      "color": "black"
+    }
+  },
+  {
+    "Emit": {
+      "get_group": "sheets",
+      "out": "output/laser.svg"
+    }
+  },
+  {
+    "Emit": {
+      "get_group": "sheets",
+      "out": "output/laser_verbose.svg",
+      "styled": true,
+      "annotations": true
+    }
+  },
+  {
+    "Emit": {
+      "get_group": "detail",
+      "out": "output/print.svg",
+      "styled": true
+    }
+  }
+]
