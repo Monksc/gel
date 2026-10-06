@@ -1,5 +1,10 @@
 [
  {
+  "RunCode": {
+   "code": "thou = 0.001; arc_tolerance = 0.1 * thou;"
+  }
+ },
+ {
   "Filter": {
    "get_group": "main",
    "set_group": "cells",

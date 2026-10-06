@@ -232,6 +232,8 @@ mod tests {
                 set_index: Index::Literal(0),
                 amount: "amount".into(),
                 join: None,
+                arc_tolerance: Some("0.0001".into()),
+                miter_limit: None,
                 join_value: None,
             })],
         );

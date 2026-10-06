@@ -314,11 +314,23 @@ impl Data {
 /// inch-scale sign/CAM geometry.
 pub const CLIPPER_FACTOR: f64 = 32768.0; // 2^15
 
+/// Builds the `geo_clipper` join type for an `Offset`.
+///
+/// For a round join, `value` is the arc tolerance **in drawing units** - how
+/// far the emitted polyline may deviate from the true arc. That has to be
+/// scaled here: `geo-clipper` multiplies the geometry by `CLIPPER_FACTOR`
+/// and the offset distance by `CLIPPER_FACTOR`, but passes `JoinType`'s own
+/// payload through untouched (`execute_offset_operation`). Measured against
+/// integer-scaled input, an unscaled value comes out 32768x finer than the
+/// number in the program.
+///
+/// For a miter join, `value` is the miter limit - a dimensionless ratio, so
+/// no scaling applies. `square` ignores it.
 pub fn join_type_from(name: &str, value: f64) -> geo_clipper::JoinType {
     match name {
         "miter" => geo_clipper::JoinType::Miter(value),
         "square" => geo_clipper::JoinType::Square,
-        _ => geo_clipper::JoinType::Round(value),
+        _ => geo_clipper::JoinType::Round(value * CLIPPER_FACTOR),
     }
 }
 
@@ -1314,7 +1326,7 @@ impl Data {
                     "offset".into(),
                     0,
                     NativeFunction::from_closure(
-                        move |_this: &JsValue, args: &[JsValue], _context: &mut Context| {
+                        move |_this: &JsValue, args: &[JsValue], context: &mut Context| {
                             let mut iter = args.iter().peekable();
                             let Some(in_label) = take_label(&mut iter) else {
                                 return JsResult::Ok(JsValue::new(0));
@@ -1328,7 +1340,64 @@ impl Data {
                                 return JsResult::Ok(JsValue::new(0));
                             };
                             let join_type_name = take_optional_string(&mut iter, "round");
-                            let join_type_value = take_optional_number(&mut iter, 2.0);
+                            // A round join can no longer default to `2.0`:
+                            // `join_type_from` scales that by CLIPPER_FACTOR, so
+                            // it would now mean 2 inches instead of the near
+                            // -infinitely-fine value it used to mean. The
+                            // instruction form resolves from a setting instead;
+                            // a bare call has to say what it wants.
+                            let join_type_value = match iter.peek() {
+                                Some(JsValue::Integer(_)) | Some(JsValue::Rational(_)) => {
+                                    take_optional_number(&mut iter, 0.0)
+                                }
+                                _ if join_type_name == "square" => 0.0,
+                                // Fall back to the same program-wide setting
+                                // the Offset instruction resolves, so setting
+                                // it once at the top of a program fixes both
+                                // call styles. Without this the two disagree:
+                                // every ivy query calling offset() without a
+                                // join value fails outright, and an error
+                                // tells you to supply a value the program
+                                // already supplied.
+                                _ => {
+                                    let setting = match join_type_name.as_str() {
+                                        "miter" => "miter_limit",
+                                        _ => "arc_tolerance",
+                                    };
+                                    let found = context
+                                        .eval(boa_engine::Source::from_bytes(&format!(
+                                            "typeof {setting} === 'number' ? {setting} : -1"
+                                        )))
+                                        .ok()
+                                        .and_then(|value| value.as_number())
+                                        .filter(|value| value.is_finite() && *value > 0.0);
+
+                                    match found {
+                                        Some(value) => value,
+                                        None => {
+                                            let what = match join_type_name.as_str() {
+                                                "miter" => "a miter limit (dimensionless)",
+                                                _ => "an arc_tolerance in drawing units",
+                                            };
+                                            let message = format!(
+                                                "offset: a {join_type_name} join needs {what} - \
+                                                 pass it as the last argument, or set it once for \
+                                                 the program: {setting} = 0.1 * 0.001;"
+                                            );
+                                            return JsResult::Err(JsError::from_opaque(
+                                                js_string!(message).into(),
+                                            ));
+                                        }
+                                    }
+                                }
+                            };
+                            if join_type_name == "round"
+                                && !(join_type_value.is_finite() && join_type_value > 0.0)
+                            {
+                                return JsResult::Err(JsError::from_opaque(
+                                    js_string!("offset: arc_tolerance must be a positive length in drawing units").into(),
+                                ));
+                            }
 
                             let count = offset_slot(
                                 &shapes, &depths, &groups,

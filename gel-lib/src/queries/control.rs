@@ -165,6 +165,8 @@ mod tests {
                 set_index: Index::Literal(0),
                 amount: "0.005".into(),
                 join: None,
+                arc_tolerance: Some("0.0001".into()),
+                miter_limit: None,
                 join_value: None,
             })],
         }
@@ -194,7 +196,7 @@ mod tests {
     #[test]
     fn while_counts_and_writes_a_group_per_pass() {
         let mut data = data();
-        set(&mut data, "n = 0;");
+        set(&mut data, "n = 0; arc_tolerance = 0.1 * 0.001;");
 
         While {
             condition: "n < 3".into(),
@@ -207,6 +209,8 @@ mod tests {
                     set_index: Index::Literal(0),
                     amount: "0.063 * (n + 1)".into(),
                     join: None,
+                    arc_tolerance: None,
+                    miter_limit: None,
                     join_value: None,
                 }),
                 Instruction::RunCode(RunCode { code: "n = n + 1;".into() }),

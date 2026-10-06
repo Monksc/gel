@@ -1,6 +1,11 @@
 [
  {
   "RunCode": {
+   "code": "thou = 0.001; arc_tolerance = 0.1 * thou;"
+  }
+ },
+ {
+  "RunCode": {
    "code": "cell_i = group_index('cell', 0, 0); cell_area = area('cell', 0);"
   }
  },

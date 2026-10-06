@@ -1,6 +1,11 @@
 [
   {
     "RunCode": {
+      "code": "thou = 0.001; arc_tolerance = 0.1 * thou;"
+    }
+  },
+  {
+    "RunCode": {
       "code": "r = 0.63;"
     }
   },

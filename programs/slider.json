@@ -1,6 +1,11 @@
 [
   {
     "RunCode": {
+      "code": "thou = 0.001; arc_tolerance = 0.1 * thou;"
+    }
+  },
+  {
+    "RunCode": {
       "code": "job_name = 'SLIDER TEST'; sign_type = 'C.1'; thermoformed = false; radial_corners = true; corner_r = 0.63; radial_spacing = 0.125; stock = 30;"
     }
   },

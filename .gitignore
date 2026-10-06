@@ -21,3 +21,9 @@ target
 #.idea/
 
 output
+
+# Ignored by Cargo for a workspace member; the root Cargo.lock is authoritative
+gel-mcp/Cargo.lock
+
+# Scratch benchmark output
+.bench/

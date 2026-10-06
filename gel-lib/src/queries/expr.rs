@@ -25,6 +25,37 @@ pub fn eval_number(data: &mut Data, expression: &str, field: &str) -> Result<f64
     }
 }
 
+/// Reads a named setting from the shared JS context, if the program set one.
+///
+/// A program declares its tunables once, up front, in a `RunCode`, and every
+/// instruction that wants one resolves it by name:
+///
+/// ```json
+/// {"RunCode": {"code": "thou = 0.001; arc_tolerance = 0.1 * thou;"}}
+/// ```
+///
+/// So changing the job means editing one line rather than hunting a magic
+/// number through every instruction.
+///
+/// `Ok(None)` means "no such setting". That has to be distinguishable from
+/// an expression that evaluated to something unusable, because the caller
+/// needs to report "this field has no value and cannot be defaulted" with an
+/// actionable message rather than a `ReferenceError`.
+pub fn setting_number(data: &mut Data, name: &str) -> Result<Option<f64>, String> {
+    // `typeof x` is the one way to ask about an identifier that may not
+    // exist: it yields `"undefined"` instead of throwing a ReferenceError.
+    let kind = data
+        .context
+        .eval(Source::from_bytes(&format!("typeof {name}")))
+        .and_then(|kind| kind.to_string(&mut data.context))
+        .map_err(|err| format!("could not read setting {name}: {err}"))?
+        .to_std_string_lossy();
+    if kind == "undefined" {
+        return Ok(None);
+    }
+    eval_number(data, name, &format!("setting {name}")).map(Some)
+}
+
 /// Evaluates an expression against the shared JS context, as a string.
 pub fn eval_string(data: &mut Data, expression: &str, field: &str) -> Result<String, String> {
     let value = data
